@@ -807,6 +807,11 @@ async function registerUser(){
   if(!peso){showToast('Por favor, informe seu peso para calcular a meta de água.');return;}
   const btn=document.getElementById('btn-register');
   btn.disabled=true;btn.textContent='Salvando...';
+  // Safety timeout - reset after 8s if stuck
+  const safetyTimer=setTimeout(()=>{
+    btn.disabled=false;btn.textContent='Começar meu desafio! 🌸';
+    showToast('Tempo esgotado. Verifique sua conexão e tente novamente.');
+  },8000);
 
   // Get dream photo as base64
   let foto_sonho=null;
@@ -820,8 +825,24 @@ async function registerUser(){
   }
 
   try{
-    const existing=allUsers.find(u=>u.nome.toLowerCase()===nome.toLowerCase());
-    if(existing){currentUser=existing;showDreamModal(existing);loadStudentScreen();return;}
+    // Check duplicate by nome OR whatsapp
+    const existingByNome=allUsers.find(u=>u.nome.toLowerCase()===nome.toLowerCase());
+    const existingByWpp=allUsers.find(u=>u.whatsapp&&u.whatsapp.replace(/\D/g,'')===whatsapp.replace(/\D/g,''));
+
+    if(existingByNome||existingByWpp){
+      const existing=existingByNome||existingByWpp;
+      clearTimeout(safetyTimer);
+      if(existingByWpp&&!existingByNome){
+        showToast('Este WhatsApp já está cadastrado!');
+        btn.disabled=false;btn.textContent='Começar meu desafio! 🌸';
+        return;
+      }
+      currentUser=existing;
+      try{localStorage.setItem('md21_nome',existing.nome);}catch(e){}
+      btn.disabled=false;btn.textContent='Começar meu desafio! 🌸';
+      loadStudentScreen();
+      return;
+    }
     const userData={
       nome,whatsapp,ig:document.getElementById('reg-ig').value,aceite_termos:true,aceite_data:new Date().toISOString(),
       cidade:document.getElementById('reg-cidade').value,
@@ -842,15 +863,26 @@ async function registerUser(){
       medidas_semanais:{}
     };
     const {data,error}=await sb.from('usuarios').insert([userData]).select().single();
-    if(error)throw error;
+    if(error){
+      clearTimeout(safetyTimer);
+      const msg=error?.message||error?.code||JSON.stringify(error);
+      showToast('Erro: '+msg);
+      alert('Erro Supabase: '+msg);
+      btn.disabled=false;btn.textContent='Começar meu desafio! 🌸';
+      return;
+    }
     allUsers.push(data);
     currentUser=data;
     try{localStorage.setItem('md21_nome',data.nome);}catch(e){}
-    showDreamModal(data);
+    clearTimeout(safetyTimer);
+    // Go straight to app - no modal
     loadStudentScreen();
   }catch(e){
-    console.error(e);
-    showToast('Erro ao salvar. Tente novamente.');
+    clearTimeout(safetyTimer);
+    console.error('REGISTER ERROR:', e);
+    const msg=e?.message||e?.code||JSON.stringify(e)||'Erro desconhecido';
+    showToast('Erro: '+msg);
+    alert('Erro: '+msg);
     btn.disabled=false;btn.textContent='Começar meu desafio! 🌸';
   }
 }
